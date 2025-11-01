@@ -1,0 +1,253 @@
+type rand.
+type attr_t.
+
+(* ================= *)
+(* ==    CRYPTO   == *)
+(* ================= *)
+
+(* Asymmetric encryption *)
+type skey.
+type pkey.
+fun pk(skey):pkey.
+fun aenc(bitstring,pkey,rand):bitstring.
+reduc forall message:bitstring, sk:skey, r:rand;
+  adec(aenc(message,pk(sk),r), sk) = message.
+
+(* Signature *)
+type sskey.
+type spkey.
+type sig_t.
+fun spk(sskey):spkey.
+fun sign(bitstring,sskey,rand):sig_t.
+reduc forall message:bitstring, ssk:sskey, r:rand;
+  verify_sig(spk(ssk), message, sign(message,ssk,r)) = true.
+
+(* ZKP_DEC: Proof of correct decryption *)
+type zkp_dec_t.
+fun zkp_dec(bitstring, bitstring, attr_t, skey):zkp_dec_t. (* b, v, a, sk_e *)
+fun verify_zkp_dec(bitstring, bitstring, attr_t, zkp_dec_t):bool
+reduc forall b:bitstring, v:bitstring, a:attr_t, sk_e:skey, r:rand;
+  verify_zkp_dec(aenc((v,a), pk(sk_e), r), v, a, zkp_dec(aenc((v,a), pk(sk_e), r), v, a, sk_e)) = true
+otherwise forall b:bitstring, v:bitstring, a:attr_t, pi:zkp_dec_t;
+  verify_zkp_dec(b, v, a, pi) = false.
+
+(* Election key *)
+free sk_e:skey [private].
+letfun pk_e = pk(sk_e).
+
+(* ================= *)
+(* == DEFINITIONS == *)
+(* ================= *)
+
+(* Corruption status *)
+type status_t.
+free honest: status_t.
+free corrupt: status_t.
+
+(* Securty property flavours *)
+type property_t.
+free X: property_t.
+free Xattrs: property_t.
+
+(* Voters *)
+type id_t.
+free Alice:id_t.
+free Bob:id_t.
+
+(* Possible votes *)
+free A:bitstring.
+free B:bitstring.
+free Neutral:bitstring.
+
+(* Pastillage (defined here because used bellow)*)
+type sattr_t.
+free AttrA:sattr_t.
+free AttrB:sattr_t.
+free AttrC:sattr_t.
+free AttrD:sattr_t.
+fun attr(sattr_t):attr_t [private].
+fun attr_to_bs(attr_t):bitstring [typeConverter].
+fun is_attr(attr_t):bool
+reduc forall x:sattr_t;
+  is_attr(attr(x)) = true
+otherwise forall y:attr_t;
+  is_attr(y) = false.
+
+(* Sub Bulletin Boards *)
+type bb_t.
+free BBmain:bb_t.
+free BBmainTally:bb_t.
+free BB1:bb_t.
+free BB2:bb_t.
+
+(* Channels *)
+free public:channel.
+free mixnet:channel [private].
+
+(* Private channels *)
+fun c_reg(id_t):channel [private].
+fun c_server(id_t):channel [private].
+
+(* ================= *)
+(* ==    TABLES   == *)
+(* ================= *)
+
+table CREDENTIALS(id_t, spkey, attr_t).
+
+(* Unique per id + unique per credential *)
+restriction bb:bb_t, id,id':id_t, cred,cred':spkey, a,a':attr_t;
+  table(CREDENTIALS(id,cred,a)) && table(CREDENTIALS(id',cred,a')) ==> id = id' && a = a';
+  table(CREDENTIALS(id,cred,a)) && table(CREDENTIALS(id,cred',a')) ==> cred = cred' && a = a'.
+
+table BULLETIN_BOARD(bb_t, spkey, bitstring).
+
+(* Unique ballot + unique cred *)
+restriction bb:bb_t, cred,cred':spkey, b,b':bitstring;
+  table(BULLETIN_BOARD(bb, cred, b)) && table(BULLETIN_BOARD(bb, cred', b)) ==> cred = cred';
+  table(BULLETIN_BOARD(bb, cred, b)) && table(BULLETIN_BOARD(bb, cred, b')) ==> b = b'.
+
+(* ================= *)
+(* ==    EVENTS   == *)
+(* ================= *)
+
+event Voter(id_t, spkey, status_t).
+event IsEligible(id_t, bb_t).
+event Tallied(bb_t). (* Triggered when a BallotBox is tallied *)
+event Voted(id_t, bitstring).
+event Verified(bb_t, id_t, bitstring).
+event GoingToTally(bb_t, id_t, spkey, bitstring).
+event DispatchEnd(bb_t, id_t, spkey).
+
+(* =========================== *)
+(* ==  Other restrictions   == *)
+(* =========================== *)
+
+(* Every voter has uniq cred *)
+restriction id:id_t,id':id_t,cred:spkey,cred':spkey,l:status_t,l':status_t;
+  event(Voter(id,cred,l)) && event(Voter(id',cred',l')) ==> (id = id' && cred = cred' && l = l') || (id <> id' && cred <> cred').
+
+(* Only one vote per cred *)
+restriction bb:bb_t,id:id_t,id':id_t,cred:spkey,cred':spkey,x:bitstring,x':bitstring;
+  event(GoingToTally(bb,id,cred,x)) && event(GoingToTally(bb,id,cred',x')) ==> x = x'.
+
+(* Only one vote per id *)
+restriction bb:bb_t,id:id_t,id':id_t,cred:spkey,x:bitstring,x':bitstring;
+  event(GoingToTally(bb,id,cred,x)) && event(GoingToTally(bb,id',cred,x')) ==> x = x'.
+
+(* ZKP: PoK + Bind to cred and attr *)
+type zkp_t. (* p2 *)
+fun zkp(rand, spkey, attr_t):zkp_t.
+fun verify_zkp(bitstring, sig_t, attr_t, zkp_t):bool
+reduc forall m:bitstring, epk:pkey, r:rand, s:rand, a:attr_t, ssk:sskey;
+  verify_zkp(aenc(m,epk,r), sign(aenc(m,epk,r),ssk,s), a, zkp(r,spk(ssk), a)) = true
+otherwise forall b:bitstring, a:attr_t, s:sig_t, pi:zkp_t;
+  verify_zkp(b, s, a, pi) = false.
+
+(* Verify all 2 (using zkp2) *)
+letfun verify_all(cred:spkey, ba:bitstring) =
+  let (b:bitstring, a:attr_t) = ba in
+  let (c:bitstring, sig:sig_t, pi:zkp_t) = b in
+  verify_sig(cred, c, sig) && verify_zkp(c,sig,a,pi).
+
+(* Open a vote without the private key (for verification queries) *)
+pred open_eq(bitstring,bitstring).
+clauses
+  forall v:bitstring,k:pkey,r:rand,sig:sig_t,pi:zkp_t; open_eq(v,(aenc(v,k,r),sig,pi)).
+
+(* == Registrar == *)
+let Registrar(id:id_t, scred:sskey, a:attr_t, status:status_t) =
+  if (status = corrupt) then (
+    out(public, (id, c_reg(id), scred, a));
+    !(
+      in(public, (id2:id_t, cred:spkey, a2:attr_t));
+      if a2 = attr(AttrA) || a2 = attr(AttrB) then (
+        event IsEligible(id2, BB1);
+        insert CREDENTIALS(id2, cred, a2)
+      ) else if a2 = attr(AttrC) || a2 = attr(AttrD) then (
+        event IsEligible(id2, BB2);
+        insert CREDENTIALS(id2, cred, a2)
+      )
+    )
+  )
+  else
+  let cred = spk(scred) in
+  out(public, cred);
+
+  if a = attr(AttrA) || a = attr(AttrB) then (
+    event IsEligible(id, BB1);
+    insert CREDENTIALS(id, cred, a);
+    out(c_reg(id), (scred, a))
+  ) else if a = attr(AttrC) || a = attr(AttrD) then (
+    event IsEligible(id, BB2);
+    insert CREDENTIALS(id, cred, a);
+    out(c_reg(id), (scred, a))
+  ).
+
+let Server(id:id_t, status:status_t) =
+  if status = corrupt then ( (* CORRUPT *)
+    !(
+      (* When getting ballots on a public channel *)
+      in(public, (cred:spkey, id2: id_t, (b:bitstring, a:attr_t)));
+      (* Verify cred exists *)
+      get CREDENTIALS(_, =cred, _) in
+      (* Verify ballot is valid *)
+      if (verify_all(cred, (b, a))) then
+      (* Vote *)
+      event IsEligible(id2, BBmain);
+      event GoingToTally(BBmain, id2, cred, (b, a));
+      insert BULLETIN_BOARD(BBmain, cred, (b, a))
+    )
+    | out(public, c_server(id)) (* Leak auth channel *)
+  )
+  else (* HONEST *)
+  (* When getting a vote through the voter's authenticated channel *)
+  in(c_server(id), (cred:spkey, (b:bitstring, a:attr_t)));
+  (* Verify cred match id *)
+  get CREDENTIALS(=id, =cred, _) in
+  (* Verify ballot is valid *)
+  if (verify_all(cred, (b, a)))
+  then
+  (* Vote *)
+  event IsEligible(id, BBmain);
+  event GoingToTally(BBmain, id, cred, (b,a));
+  insert BULLETIN_BOARD(BBmain, cred, (b,a))
+  .
+
+let Client(id:id_t, v:bitstring) =
+  new r:rand;
+  new s:rand;
+
+  in(c_reg(id), (scred:sskey, a:attr_t));
+  let cred = spk(scred) in
+
+  (* vote *)
+  let c = aenc(v, pk_e, r) in
+  let sig = sign(c, scred, s) in
+  let pi = zkp(r, cred, a) in
+  let b = (c, sig, pi) in
+
+  event Voted(id, v);
+
+  out(public, (cred, (b, a))) | out(c_server(id), (cred, (b, a)))
+  |  get BULLETIN_BOARD(=BBmain, =cred, (=b, =a)) in event Verified(BBmain, id, v)
+  .
+
+let DispatchAll() =
+  !(
+    in(public, (id:id_t, bb:bb_t));
+    if bb <> BBmain then
+    get BULLETIN_BOARD(=BBmain, cred, (b:bitstring, a:attr_t)) in
+    event GoingToTally(bb, id, cred, (b,a));
+    insert BULLETIN_BOARD(bb, cred, (b,a));
+    event DispatchEnd(bb, id, cred)
+  ).
+
+(* Dispatch *)
+restriction bb:bb_t,id:id_t,a:attr_t,cred:spkey,b:bitstring;
+  event(GoingToTally(BBmain,id,cred,(b,AttrA))) && event(DispatchEnd(BB1,id,cred)) ==> event(GoingToTally(BB1,id,cred,(b,AttrA))).
+restriction bb:bb_t,id:id_t,a:attr_t,cred:spkey,b:bitstring;
+  event(GoingToTally(BBmain,id,cred,(b,AttrB))) && event(DispatchEnd(BB1,id,cred)) ==> event(GoingToTally(BB1,id,cred,(b,AttrB))).
+restriction bb:bb_t,id:id_t,a:attr_t,cred:spkey,b:bitstring;
+  event(GoingToTally(BBmain,id,cred,(b,AttrC))) && event(DispatchEnd(BB2,id,cred)) ==> event(GoingToTally(BB2,id,cred,(b,AttrC))).
+restriction bb:bb_t,id:id_t,a:attr_t,cred:spkey,b:bitstring;
+  event(GoingToTally(BBmain,id,cred,(b,AttrD))) && event(DispatchEnd(BB2,id,cred)) ==> event(GoingToTally(BB2,id,cred,(b,AttrD))).
