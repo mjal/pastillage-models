@@ -59,26 +59,50 @@ free A:bitstring.
 free B:bitstring.
 free Neutral:bitstring.
 
-(* Pastillage (defined here because used bellow)*)
-type sattr_t.
-free AttrA:sattr_t.
-free AttrB:sattr_t.
-free AttrC:sattr_t.
-free AttrD:sattr_t.
+(* Pastillage *)
+(* We model it using 4 attributes and 2 BB *)
+
+type sattr_t. (* sattr_t needs to be transformed to attr_t by using the private function attr() *)
 fun attr(sattr_t):attr_t [private].
-fun attr_to_bs(attr_t):bitstring [typeConverter].
 fun is_attr(attr_t):bool
 reduc forall x:sattr_t;
   is_attr(attr(x)) = true
 otherwise forall y:attr_t;
   is_attr(y) = false.
 
-(* Sub Bulletin Boards *)
+(* The 4 attributes *)
+free AttrA:sattr_t.
+free AttrB:sattr_t.
+free AttrC:sattr_t.
+free AttrD:sattr_t.
+free Attr0:sattr_t. (* This attribute is never used, it is part of a trick to unify BBmain and BB1/BB2 *)
+
+fun attr_to_bs(attr_t):bitstring [typeConverter].
+
+(* Bulletin Boards
+We have the main bulletin board BBmain.
+But pastillage means that we have additional bulletin boards, here BB1 and BB2.
+We construct a BB (bulletin board) as a set of max 4 eligible attributes.
+*)
+type bb_t.
+fun makeBB(attr_t, attr_t, attr_t, attr_t):bb_t.
+letfun BBmain = makeBB(attr(AttrA), attr(AttrB), attr(AttrC), attr(AttrD)).
+letfun BB1    = makeBB(attr(AttrA), attr(AttrB), attr(Attr0), attr(Attr0)).
+letfun BB2    = makeBB(attr(AttrC), attr(AttrD), attr(Attr0), attr(Attr0)).
+
+(* Eligibility to sub-bulletin boards *)
+pred is_eligible(attr_t, bb_t).
+clauses
+  forall a,b,c,d:attr_t; is_eligible(a, makeBB(a,b,c,d));
+  forall a,b,c,d:attr_t; is_eligible(b, makeBB(a,b,c,d));
+  forall a,b,c,d:attr_t; is_eligible(c, makeBB(a,b,c,d));
+  forall a,b,c,d:attr_t; is_eligible(d, makeBB(a,b,c,d)).
+
+(* obselete ?
 type bb_t.
 free BBmain:bb_t.
 free BBmainTally:bb_t.
-free BB1:bb_t.
-free BB2:bb_t.
+*)
 
 (* Channels *)
 free public:channel.
@@ -110,11 +134,11 @@ restriction bb:bb_t, cred,cred':spkey, b,b':bitstring;
 (* ==    EVENTS   == *)
 (* ================= *)
 
-event Voter(id_t, spkey, status_t).
+event Voter(id_t, spkey, attr_t, status_t).
 event IsEligible(id_t, bb_t).
 event Tallied(bb_t). (* Triggered when a BallotBox is tallied *)
 event Voted(id_t, bitstring).
-event Verified(bb_t, id_t, bitstring).
+event Verified(id_t, bitstring).
 event GoingToTally(bb_t, id_t, spkey, bitstring).
 event DispatchEnd(bb_t, id_t, spkey).
 
@@ -123,8 +147,8 @@ event DispatchEnd(bb_t, id_t, spkey).
 (* =========================== *)
 
 (* Every voter has uniq cred *)
-restriction id:id_t,id':id_t,cred:spkey,cred':spkey,l:status_t,l':status_t;
-  event(Voter(id,cred,l)) && event(Voter(id',cred',l')) ==> (id = id' && cred = cred' && l = l') || (id <> id' && cred <> cred').
+restriction id,id':id_t,a,a':attr_t,cred:spkey,cred':spkey,l:status_t,l':status_t;
+  event(Voter(id,cred,a,l)) && event(Voter(id',cred',a',l')) ==> (id = id' && cred = cred' && l = l') || (id <> id' && cred <> cred').
 
 (* Only one vote per cred *)
 restriction bb:bb_t,id:id_t,id':id_t,cred:spkey,cred':spkey,x:bitstring,x':bitstring;
@@ -203,7 +227,7 @@ let Server(id:id_t, status:status_t) =
   (* When getting a vote through the voter's authenticated channel *)
   in(c_server(id), (cred:spkey, (b:bitstring, a:attr_t)));
   (* Verify cred match id *)
-  get CREDENTIALS(=id, =cred, _) in
+  get CREDENTIALS(=id, =cred, =a) in
   (* Verify ballot is valid *)
   if (verify_all(cred, (b, a)))
   then
@@ -229,7 +253,7 @@ let Client(id:id_t, v:bitstring) =
   event Voted(id, v);
 
   out(public, (cred, (b, a))) | out(c_server(id), (cred, (b, a)))
-  |  get BULLETIN_BOARD(=BBmain, =cred, (=b, =a)) in event Verified(BBmain, id, v)
+  |  get BULLETIN_BOARD(=BBmain, =cred, (=b, =a)) in event Verified(id, v)
   .
 
 let DispatchAll() =
@@ -242,12 +266,50 @@ let DispatchAll() =
     event DispatchEnd(bb, id, cred)
   ).
 
+let DispatchOne(a:attr_t, bb:bb_t) =
+  !(
+    (* Get a voter *)
+    in(public, id:id_t); get CREDENTIALS(=id, cred, _) in
+
+    (* Get the voter's ballot*)
+    get BULLETIN_BOARD(=BBmain, =cred, (b:bitstring, =a)) in
+
+    (* Dispatch to the subBB *)
+    event GoingToTally(bb, id, cred, (b,a));
+    insert BULLETIN_BOARD(bb, cred, (b,a));
+
+    (* Signal that dispatch for this (voter, bb) is done *)
+    event DispatchEnd(bb, id, cred)
+  ).
+
+(* Note: could be simplified using something like this ?
+fun BBmain: bb_t [data].
+equation BBmain = makeBB(attr(AttrA), attr(AttrB), attr(AttrC), attr(AttrD)).
+*)
+
 (* Dispatch *)
+
+(* Using shortcuts :*)
+(* BBmain = makeBB(attr(AttrA),attr(AttrB),attr(AttrC),attr(AttrD)) *)
+(* BB1 = makeBB(attr(AttrA),attr(AttrB),attr(Attr0),attr(Attr0)) *)
+(* BB2 = makeBB(attr(AttrC),attr(AttrD),attr(Attr0),attr(Attr0)) *)
+
+(* PESTO:
+  Est-ce correct ? Est-ce que ça modélise bien le Dispatch ?
+  Une "attaque" qui me semble possible :
+  - On fait un dispatch correct.
+  - On peut ensuite faire un dispatch incorrect ?
+*)
+
+(* event(GTT(BBmain,id,cred,(b,AttrA)) && event(DispatchEnd(BB1,id,cred) ==> GTT(BB1,id,cred,(b,AttrA))*)
 restriction bb:bb_t,id:id_t,a:attr_t,cred:spkey,b:bitstring;
-  event(GoingToTally(BBmain,id,cred,(b,AttrA))) && event(DispatchEnd(BB1,id,cred)) ==> event(GoingToTally(BB1,id,cred,(b,AttrA))).
+  event(GoingToTally(makeBB(attr(AttrA),attr(AttrB),attr(AttrC),attr(AttrD)),id,cred,(b,AttrA))) && event(DispatchEnd(makeBB(attr(AttrA),attr(AttrB),attr(Attr0),attr(Attr0)),id,cred)) ==> event(GoingToTally(makeBB(attr(AttrA),attr(AttrB),attr(Attr0),attr(Attr0)),id,cred,(b,AttrA))).
+(* idem with AttrB *)
 restriction bb:bb_t,id:id_t,a:attr_t,cred:spkey,b:bitstring;
-  event(GoingToTally(BBmain,id,cred,(b,AttrB))) && event(DispatchEnd(BB1,id,cred)) ==> event(GoingToTally(BB1,id,cred,(b,AttrB))).
+  event(GoingToTally(makeBB(attr(AttrA),attr(AttrB),attr(AttrC),attr(AttrD)),id,cred,(b,AttrB))) && event(DispatchEnd(makeBB(attr(AttrA),attr(AttrB),attr(Attr0),attr(Attr0)),id,cred)) ==> event(GoingToTally(makeBB(attr(AttrA),attr(AttrB),attr(Attr0),attr(Attr0)),id,cred,(b,AttrB))).
+(* idem *)
 restriction bb:bb_t,id:id_t,a:attr_t,cred:spkey,b:bitstring;
-  event(GoingToTally(BBmain,id,cred,(b,AttrC))) && event(DispatchEnd(BB2,id,cred)) ==> event(GoingToTally(BB2,id,cred,(b,AttrC))).
+  event(GoingToTally(makeBB(attr(AttrA),attr(AttrB),attr(AttrC),attr(AttrD)),id,cred,(b,AttrC))) && event(DispatchEnd(makeBB(attr(AttrC),attr(AttrD),attr(Attr0),attr(Attr0)),id,cred)) ==> event(GoingToTally(makeBB(attr(AttrC),attr(AttrD),attr(Attr0),attr(Attr0)),id,cred,(b,AttrC))).
+(* idem *)
 restriction bb:bb_t,id:id_t,a:attr_t,cred:spkey,b:bitstring;
-  event(GoingToTally(BBmain,id,cred,(b,AttrD))) && event(DispatchEnd(BB2,id,cred)) ==> event(GoingToTally(BB2,id,cred,(b,AttrD))).
+  event(GoingToTally(makeBB(attr(AttrA),attr(AttrB),attr(AttrC),attr(AttrD)),id,cred,(b,AttrD))) && event(DispatchEnd(makeBB(attr(AttrC),attr(AttrD),attr(Attr0),attr(Attr0)),id,cred)) ==> event(GoingToTally(makeBB(attr(AttrC),attr(AttrD),attr(Attr0),attr(Attr0)),id,cred,(b,AttrD))).

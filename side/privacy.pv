@@ -28,14 +28,14 @@ let Tally(bb: bb_t) =
   .
 
 (* -- Executability check -- *)
-lemma event(Tallied(BB1)) [maxSubset].
-lemma event(Tallied(BB2)) [maxSubset].
+lemma event(Tallied(makeBB(attr(AttrA),attr(AttrB),attr(Attr0),attr(Attr0)))) [maxSubset]. (* BB1 *)
+lemma event(Tallied(makeBB(attr(AttrC),attr(AttrD),attr(Attr0),attr(Attr0)))) [maxSubset]. (* BB2 *)
 
 (* -- Main process -- *)
 process
   let property = X in
   let status_server = honest in
-  let status_reg = honest in
+  let status_reg = corrupt in
 
   new scred_Alice:sskey;
   new scred_Bob:sskey;

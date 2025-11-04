@@ -2,46 +2,49 @@
 (* -lib protocol.pvl *)
 
 (* == Queries ==*)
-
 (* cast-as-intended (identity-based) *)
 query bb: bb_t, b:bitstring, id,id':id_t, cred,cred':spkey, v:bitstring, a:attr_t, l:status_t;
-  event(Verified(BBmain, id, v)) && event(IsEligible(id, bb)) && event(DispatchEnd(bb, id, cred')) ==>
-    event(Voter(id, cred', l)) && event(GoingToTally(bb, id, cred', (b,a))) && open_eq(v, b).
+  event(Verified(id, v)) && is_eligible(a, bb) && event(DispatchEnd(bb, id, cred')) ==>
+    event(Voter(id, cred', a, l)) && event(GoingToTally(bb, id, cred', (b,a))) && open_eq(v, b).
+
 (* cast-as-intended (credential-based) *)
-query bb: bb_t, b:bitstring, id,id':id_t, cred,cred':spkey, v:bitstring, a:attr_t;
-  event(Verified(BBmain, id, v)) && event(IsEligible(id, bb)) && event(DispatchEnd(bb, id', cred)) ==>
-    event(Voter(id, cred, honest)) && event(GoingToTally(bb, id', cred, (b,a))) && open_eq(v, b).
+query bb: bb_t, b:bitstring, id,id':id_t, cred,cred':spkey, v:bitstring, a:attr_t, l:status_t;
+  event(Verified(id, v)) && is_eligible(a, bb) && event(DispatchEnd(bb, id, cred')) ==>
+    event(Voter(id, cred, a, l)) && event(GoingToTally(bb, id', cred, (b,a))) && open_eq(v, b).
+
 
 (* recorded-as-intended (identity-based) *)
 query bb: bb_t, b:bitstring, id,id':id_t, cred,cred':spkey, v:bitstring, a:attr_t;
-  event(GoingToTally(bb, id, cred, (b,a))) && event(Voter(id, cred', honest)) ==>
+  event(GoingToTally(bb, id, cred, (b,a))) && event(Voter(id, cred', a, honest)) ==>
     event(Voted(id, v)) && open_eq(v, b).
+
 (* recorded-as-intended (credential-based) *)
 query bb: bb_t, b:bitstring, id,id':id_t, cred,cred':spkey, v:bitstring, a:attr_t;
-  event(GoingToTally(bb, id, cred, (b,a))) && event(Voter(id', cred, honest)) ==>
+  event(GoingToTally(bb, id, cred, (b,a))) && event(Voter(id', cred, a, honest)) ==>
     event(Voted(id', v)) && open_eq(v,b).
 
 (* Eligibility (identity-based) *)
 query bb: bb_t, b:bitstring, id:id_t, cred,cred':spkey, v:bitstring, l:status_t, a:attr_t;
-  event(GoingToTally(bb, id, cred, (b,a))) ==> event(Voter(id, cred', l)) && event(IsEligible(id,bb)).
+  event(GoingToTally(bb, id, cred, (b,a))) ==> event(Voter(id, cred', a, l)) && is_eligible(a, bb).
+
 (* Eligibility (credential-based) *)
 query bb: bb_t, b:bitstring, id,id':id_t, cred,cred':spkey, v:bitstring, l:status_t, a:attr_t;
-  event(GoingToTally(bb, id, cred, (b,a))) ==> event(Voter(id', cred, l)) && event(IsEligible(id,bb)).
+  event(GoingToTally(bb, id, cred, (b,a))) ==> event(Voter(id', cred, a, l)) && is_eligible(a, bb).
 
 (* ---------------------------*)
 (* -- Executability checks -- *)
 (* ---------------------------*)
-
 query id:id_t, cred: spkey, b:bitstring, a:attr_t;
-  event(GoingToTally(BB1, id, cred, (b,a))) ==> false.
+  event(GoingToTally(makeBB(attr(AttrA), attr(AttrB), attr(Attr0), attr(Attr0)), id, cred, (b,a))) ==> false.
+
 query bb:bb_t, id:id_t, v:bitstring;
-  event(Verified(bb, id, v)) ==> false.
+  event(Verified(id, v)) ==> false.
 
 let VoterEnv(a:attr_t, status_reg: status_t, status_server: status_t) = 
   new id:id_t;
   new v:bitstring;
   new scred:sskey;
-  event Voter(id, spk(scred), honest);
+  event Voter(id, spk(scred), a, honest);
   Registrar(id, scred, a, status_reg)
   | Client(id, v)
   | Server(id, status_server)
@@ -49,7 +52,7 @@ let VoterEnv(a:attr_t, status_reg: status_t, status_server: status_t) =
 
 (* -- Main process -- *)
 process
-  let status_server = honest in
+  let status_server = corrupt in
   let status_reg = honest in
 
   out(public, (pk_e, attr(AttrA), attr(AttrB), attr(AttrC), attr(AttrD)))
@@ -60,12 +63,16 @@ process
   | !VoterEnv(attr(AttrC), status_reg, status_server)
   | !VoterEnv(attr(AttrD), status_reg, status_server)
 
-  | DispatchAll()
+  (*| DispatchAll()*)
+  | DispatchOne(attr(AttrA), BB1)
+  | DispatchOne(attr(AttrB), BB1)
+  | DispatchOne(attr(AttrC), BB2)
+  | DispatchOne(attr(AttrD), BB2)
 
   (* Dishonest voters (controlled by the attacker) *)
   | !(
     in(public, (id:id_t, a:attr_t, scred:sskey));
-    event Voter(id, spk(scred), corrupt);
+    event Voter(id, spk(scred), a, corrupt);
     Registrar(id, scred, a, status_reg)
     | Server(id, status_server)
     | out(public, (c_reg(id), c_server(id)))
