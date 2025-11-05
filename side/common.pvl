@@ -255,6 +255,7 @@ let Client(id:id_t, v:bitstring) =
   |  get BULLETIN_BOARD(=BBmain, =cred, (=b, =a)) in event Verified(id, v)
   .
 
+(* Need restrictions. "Obselete", now DispatchOne is used *)
 let DispatchAll() =
   !(
     in(public, (id:id_t, bb:bb_t));
@@ -288,11 +289,6 @@ equation BBmain = makeBB(attr(AttrA), attr(AttrB), attr(AttrC), attr(AttrD)).
 
 (* Dispatch *)
 
-(* Using shortcuts :*)
-(* BBmain = makeBB(attr(AttrA),attr(AttrB),attr(AttrC),attr(AttrD)) *)
-(* BB1 = makeBB(attr(AttrA),attr(AttrB),attr(Attr0),attr(Attr0)) *)
-(* BB2 = makeBB(attr(AttrC),attr(AttrD),attr(Attr0),attr(Attr0)) *)
-
 (* PESTO:
   Est-ce correct ? Est-ce que ça modélise bien le Dispatch ?
   Une "attaque" qui me semble possible :
@@ -300,7 +296,12 @@ equation BBmain = makeBB(attr(AttrA), attr(AttrB), attr(AttrC), attr(AttrD)).
   - On peut ensuite faire un dispatch incorrect ?
 *)
 
-(* Obselete
+(* Using shortcuts :*)
+(* BBmain = makeBB(attr(AttrA),attr(AttrB),attr(AttrC),attr(AttrD)) *)
+(* BB1 = makeBB(attr(AttrA),attr(AttrB),attr(Attr0),attr(Attr0)) *)
+(* BB2 = makeBB(attr(AttrC),attr(AttrD),attr(Attr0),attr(Attr0)) *)
+
+(*
 (* event(GTT(BBmain,id,cred,(b,AttrA)) && event(DispatchEnd(BB1,id,cred) ==> GTT(BB1,id,cred,(b,AttrA))*)
 restriction bb:bb_t,id:id_t,a:attr_t,cred:spkey,b:bitstring;
   event(GoingToTally(makeBB(attr(AttrA),attr(AttrB),attr(AttrC),attr(AttrD)),id,cred,(b,AttrA))) && event(DispatchEnd(makeBB(attr(AttrA),attr(AttrB),attr(Attr0),attr(Attr0)),id,cred)) ==> event(GoingToTally(makeBB(attr(AttrA),attr(AttrB),attr(Attr0),attr(Attr0)),id,cred,(b,AttrA))).
