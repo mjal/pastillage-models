@@ -75,7 +75,6 @@ free AttrA:sattr_t.
 free AttrB:sattr_t.
 free AttrC:sattr_t.
 free AttrD:sattr_t.
-free Attr0:sattr_t. (* This attribute is never used, it is part of a trick to unify BBmain and BB1/BB2 *)
 
 fun attr_to_bs(attr_t):bitstring [typeConverter].
 
@@ -87,8 +86,8 @@ We construct a BB (bulletin board) as a set of max 4 eligible attributes.
 type bb_t.
 fun makeBB(attr_t, attr_t, attr_t, attr_t):bb_t.
 letfun BBmain = makeBB(attr(AttrA), attr(AttrB), attr(AttrC), attr(AttrD)).
-letfun BB1    = makeBB(attr(AttrA), attr(AttrB), attr(Attr0), attr(Attr0)).
-letfun BB2    = makeBB(attr(AttrC), attr(AttrD), attr(Attr0), attr(Attr0)).
+letfun BB1    = makeBB(attr(AttrA), attr(AttrB), attr(AttrA), attr(AttrB)).
+letfun BB2    = makeBB(attr(AttrC), attr(AttrD), attr(AttrC), attr(AttrD)).
 
 (* Eligibility to sub-bulletin boards *)
 pred is_eligible(attr_t, bb_t).
@@ -301,6 +300,7 @@ equation BBmain = makeBB(attr(AttrA), attr(AttrB), attr(AttrC), attr(AttrD)).
   - On peut ensuite faire un dispatch incorrect ?
 *)
 
+(* Obselete
 (* event(GTT(BBmain,id,cred,(b,AttrA)) && event(DispatchEnd(BB1,id,cred) ==> GTT(BB1,id,cred,(b,AttrA))*)
 restriction bb:bb_t,id:id_t,a:attr_t,cred:spkey,b:bitstring;
   event(GoingToTally(makeBB(attr(AttrA),attr(AttrB),attr(AttrC),attr(AttrD)),id,cred,(b,AttrA))) && event(DispatchEnd(makeBB(attr(AttrA),attr(AttrB),attr(Attr0),attr(Attr0)),id,cred)) ==> event(GoingToTally(makeBB(attr(AttrA),attr(AttrB),attr(Attr0),attr(Attr0)),id,cred,(b,AttrA))).
@@ -313,3 +313,4 @@ restriction bb:bb_t,id:id_t,a:attr_t,cred:spkey,b:bitstring;
 (* idem *)
 restriction bb:bb_t,id:id_t,a:attr_t,cred:spkey,b:bitstring;
   event(GoingToTally(makeBB(attr(AttrA),attr(AttrB),attr(AttrC),attr(AttrD)),id,cred,(b,AttrD))) && event(DispatchEnd(makeBB(attr(AttrC),attr(AttrD),attr(Attr0),attr(Attr0)),id,cred)) ==> event(GoingToTally(makeBB(attr(AttrC),attr(AttrD),attr(Attr0),attr(Attr0)),id,cred,(b,AttrD))).
+*)

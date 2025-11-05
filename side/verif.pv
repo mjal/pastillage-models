@@ -35,7 +35,7 @@ query bb: bb_t, b:bitstring, id,id':id_t, cred,cred':spkey, v:bitstring, l:statu
 (* -- Executability checks -- *)
 (* ---------------------------*)
 query id:id_t, cred: spkey, b:bitstring, a:attr_t;
-  event(GoingToTally(makeBB(attr(AttrA), attr(AttrB), attr(Attr0), attr(Attr0)), id, cred, (b,a))) ==> false.
+  event(GoingToTally(makeBB(attr(AttrA), attr(AttrB), attr(AttrA), attr(AttrB)), id, cred, (b,a))) ==> false.
 
 query bb:bb_t, id:id_t, v:bitstring;
   event(Verified(id, v)) ==> false.
@@ -52,7 +52,7 @@ let VoterEnv(a:attr_t, status_reg: status_t, status_server: status_t) =
 
 (* -- Main process -- *)
 process
-  let status_server = corrupt in
+  let status_server = honest in
   let status_reg = honest in
 
   out(public, (pk_e, attr(AttrA), attr(AttrB), attr(AttrC), attr(AttrD)))
